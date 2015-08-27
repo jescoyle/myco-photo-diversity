@@ -125,13 +125,6 @@ npeaks_stat==length(size_standard) # Never removes all non-size standard peaks f
 thresh_mat1 = thresh_pct_var(area_mat[,,good_dye[1]])
 thresh_mat2 = thresh_pct_var(area_mat[,,good_dye[2]])
 
-for(i in good_dye){
-
-	use_mat = area_mat[,,i]
-	thresh_mat = 
-
-}	
-
 
 ## Standardize abundance matrices by total area or total height
 height_tot = apply(height_mat, c(1,3), sum)
