@@ -115,12 +115,13 @@ setwd(working_dir)
 
 photoseqs = readDNAStringSet('./Sequences/photobiont_types/photobiont_sequences_ITS1-ITS2_nodups.fas')
 
-# Expected fragment lengths (including 19bp ITS1 and 20bp ITS2)
+# Expected fragment lengths (including 19bp ITS1 and 20bp ITS2 primers)
 its12_frags = data.frame(strain=names(photoseqs),length=width(photoseqs)+39)
 its12_frags[order(its12_frags$length),]
 # Could probably distinguish 7-8 strains from length alone
 
 # Read in table of fragment length from REPK (http://rocaplab.ocean.washington.edu/tools/repk)
+# These do not include length added by primer 
 frag_tab_fw = read.table('./TRFLP/repk_its1-its2.txt', header=T, sep='\t', row.names=1)
 frag_tab_rv = read.table('./TRFLP/repk_its2-its1.txt', header=T, sep='\t', row.names=1)
 
@@ -254,7 +255,6 @@ dev.off()
 
 
 # Save expected length table for pair that I decided to use: Hpy188III BssKI
-
 write.csv(frag_tab_fw[,c('Hpy188III','BssKI')], file='expected_photobiont_strain_lengths.csv', row.names=T)
 
 ## Generate profiles for control communities
@@ -360,8 +360,10 @@ unifrags[unifrags>35]
 use_re = names(unifrags[unifrags>35])
 
 
+
 ## Generate known profiles
 profiles = frag_tab[,c('Hpy188III', 'AccII')]
+write.csv(profiles,'./Analysis/Derived_Data/expected_mycobiont_strain_lengths.csv', row.names=T)
 
 C1 = paste('m', c(1,5,9,12,15,16,21,30,32,35,37,39,40,47) , sep='')
 C2 = paste('m', c(1,5,12,21,30,37,40,47), sep='')
@@ -369,7 +371,7 @@ C2 = paste('m', c(1,5,12,21,30,37,40,47), sep='')
 use_sp = C2
 
 use_x = frag_tab[use_sp,'Hpy188III']
-use_y = frag_tab[use_sp,'AccII']
+use_y = frag_tab[use_sp,'AccII'] # Same as BstUI
 
 pdf('./TRFLP/mycobiont control community2.pdf', height=6, width=6)	
 par(mar=c(4,4,.5,.5))
