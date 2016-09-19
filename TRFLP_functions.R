@@ -10,6 +10,31 @@ extract_vals = function(text, regr){
 	ifelse(cap$match>0, substr(cap$text, cap$start, cap$stop), NA)	
 }
 
+# A function that reads a PeakScanner2 file, cleans the data, and returns a dataframe of peaks
+read_peakscanner = function(f, size_standard, primer_length){
+	
+	# Read in PeakScanner2 file and re-name columns
+	peaksc_raw = read.table(f, sep='\t', header=T, check.names=F)
+	peaks = peaksc_raw[,c('Sample Name','Dye/Sample Peak','Size','Height','Width in BP', 'Area in BP','UD3')]
+	names(peaks) = c('Sample','DyeNum','Size','Height','Width', 'Area','strain')
+
+	# Split Dye and Peak numbers
+	peaks$Dye = substr(peaks$DyeNum, 1, 1)
+	peaks$Num = as.numeric(extract_vals(peaks$DyeNum, regexpr('[A-Z], ([0-9]+)', peaks$DyeNum, perl=T)))
+	
+	# Remove peaks not assigned a size
+	peaks = subset(peaks, !is.na(Size))
+
+	# Remove peaks whose length is less than the minimum of the size standard
+	peaks = subset(peaks, Size >= min(size_standard))
+
+	# Remove peaks whose length is less than the length of 1.5*longest primer
+	peaks = subset(peaks, Size >= primer_length*1.5)
+
+	peaks
+}
+
+
 
 # A function that thresholds peaks using constant percentage method of Sait et al 2003
 # Chooses a baseline for all profiles that minimizes the correlation between number of peaks and total peak area
@@ -209,14 +234,16 @@ plot_profiles = function(prof_mat, blank=NA, control=NA){
 		prof_mat = prof_mat[!(rownames(prof_mat) %in% blank),]
 	}
 	if(!is.na(control)){
-		this_pf = prof_mat[control,]
-		plot(as.numeric(names(this_pf)), this_pf, type='h', 
-			ylim=c(0, max(this_pf)+1), ylab='Control', xlab='', las=1, axes=F, col='red')
-		axis(2, las=1)
-		if(!is.na(blank)) points(blank_lines, rep(max(this_pf), length(blank_lines)), pch=3, col='blue')
+		for(i in 1:length(control)){
+			this_pf = prof_mat[control[i],]
+			plot(as.numeric(names(this_pf)), this_pf, type='h', 
+				ylim=c(0, max(this_pf)+1), ylab='Control', xlab='', las=1, axes=F, col='red')
+			axis(2, las=1)
+			if(!is.na(blank)) points(blank_lines, rep(max(this_pf), length(blank_lines)), pch=3, col='blue')
 
-		control_lines = as.numeric(names(this_pf[this_pf>0]))
-		prof_mat = prof_mat[rownames(prof_mat)!=control,]
+			control_lines = as.numeric(names(this_pf[this_pf>0]))
+			prof_mat = prof_mat[rownames(prof_mat)!=control,]
+		}
 	}
 
 	for(i in 1:nrow(prof_mat)){
@@ -235,7 +262,7 @@ plot_profiles = function(prof_mat, blank=NA, control=NA){
 
 ## This function bins peaks that likely come from the same fragment length using hierarchical clustering
 
-align_peaks = function(prof_mat, drawplot=T){
+align_peaks = function(prof_mat, drawplot=T, bin_size=1){
 	#require(cluster)
 	sizes = as.numeric(colnames(prof_mat))
 
@@ -248,7 +275,7 @@ align_peaks = function(prof_mat, drawplot=T){
 	# Define groups based on a distance of 1bp
 	# NEED TO CHECK PUB FOR WHETHER THIS IS THE CORRECT WAY TO DO THIS
 	# MAY WANT TO USE A LARGER WINDOW
-	bins = cutree(cl, h=1)
+	bins = cutree(cl, h=bin_size)
 
 	# Sum peak heights within bins
 	new_mat = matrix(0, nrow=nrow(prof_mat), ncol=max(bins))
@@ -279,31 +306,40 @@ align_peaks = function(prof_mat, drawplot=T){
 # A function that drops peaks associated with a control
 # control = name of row in prof_mat corresponding to control
 drop_peaks = function(prof_mat, control){
-	control_peaks = prof_mat[control,]>0
+	if(length(control)==1) control_peaks = prof_mat[control,]>0
+	if(length(control)>1) control_peaks = colSums(prof_mat[control,])>0
 	prof_mat = as.matrix(prof_mat[,!control_peaks])
-	prof_mat = as.matrix(prof_mat[rownames(prof_mat)!=control,])
+	prof_mat = as.matrix(prof_mat[!(rownames(prof_mat) %in% control),])
 
 	print(paste('Dropped', sum(control_peaks),'/',length(control_peaks), 'peaks'))
 	prof_mat
 }
 
-# A function that tests the extent to which a given profile exists in another profile and th
+# A function that tests the extent to which a given profile exists in another profile
 # Names of the two profiles should be in bp
 # pattern = profile to search for
 # target = profile to search in
 match_peaks = function(pattern, target){
 	pattern = pattern[,pattern!=0]
-	pattern_rank = rank(pattern)
-	found_peaks = which(target[,names(pattern)]>0)
-	if(length(found_peaks)>0){
-		matched = names(pattern)[found_peaks]
-		Pct_match = sum(pattern[,matched])/sum(pattern)
-		N_match = length(matched)
+	if(length(pattern)>0){
+
+		pattern_rank = rank(pattern)
+		found_peaks = which(target[,names(pattern)]>0)
+		if(length(found_peaks)>0){
+			matched = names(pattern)[found_peaks]
+			Pct_match = sum(pattern[,matched])/sum(pattern)
+			N_match = length(matched)
+		} else {
+			Pct_match = 0
+			N_match = 0
+		}
+		N_peaks = length(pattern)
+	
 	} else {
 		Pct_match = 0
 		N_match = 0
+		N_peaks = 0
 	}
-	N_peaks = length(pattern)
 
 	c(Pct_match=Pct_match, N_match=N_match, N_peaks=N_peaks)
 }
@@ -354,7 +390,46 @@ plotColorRamp = function(cols, n, barends, labels=NA, title=NA, mycex=1.5){
 	par(xpd=xpd.old)
 }
 
+# A function that performs RDA on Hellinger-transformed community data matrix
+#	comm = community data matrix
+#	env = environmental data matrix with rows in same order as comm
+#	binary = flag indicating where RDA should be performed on presence/absence data
+calc_rda = function(comm, env, binary=F){
 
+	# Convert to presence/absence if indicated
+	if(binary) comm = comm > 0
+	
+	# Transform abundances
+	comm_std = decostand(comm, 'hellinger')
 
+	# Conduct constrained ordination
+	ord = rda(comm_std, env)
 
+	# Test for significance
+	ord_test = anova(ord, nperm=9999)
+	F = ord_test$F[1]
+	P = ord_test$'Pr(>F)'[1]
+	
+	# Return the R-square
+	R2 = RsquareAdj(ord)$r.squared
+	R2adj = RsquareAdj(ord)$adj.r.squared
+
+	data.frame(R2, R2adj, F, P)
+}
+
+# A function that calculates the correlatione between compositional dissimilarity and environmental distance
+# Standardization by total abundance is currently not implemented but could be easily added using vegan's decostand
+#	comm = community data matrix
+# 	metric = vector of dissimilarity methods allowed by vegdist function in vegan
+#	env = environmental data matrix with rows in the same order as comm
+#	binary = convert community matrix to presence/absence?	
+calc_diss_cor = function(comm, metric, env, binary=F){
+	if(binary) comm = comm > 0
+	
+	sapply(metric, function(m){
+		comm_diss = vegdist(comm, method=m)
+		env_dist = dist(env)
+		cor(comm_diss, env_dist, use='pairwise.complete.obs')
+	})
+}
 
