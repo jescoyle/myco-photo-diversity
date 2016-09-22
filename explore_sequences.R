@@ -114,11 +114,90 @@ working_dir = 'C:/Users/jrcoyle/Documents/UNC/Projects/Mycobiont - Photobiont/'
 setwd(working_dir)
 
 photoseqs = readDNAStringSet('./Sequences/photobiont_types/photobiont_sequences_ITS1-ITS2_nodups.fas')
+photoseqs_all = readDNAStringSet('./Sequences/photobiont_types/photobiont_sequences_ITS1-ITS2.fas')
 
 # Expected fragment lengths (including 19bp ITS1 and 20bp ITS2 primers)
 its12_frags = data.frame(strain=names(photoseqs),length=width(photoseqs)+39)
 its12_frags[order(its12_frags$length),]
 # Could probably distinguish 7-8 strains from length alone
+
+## Find cut sites: Photobiont
+
+# Hpy188iii: 5 - TC'NN,GA - 3
+Hpy188iii = 'TCNNGA'
+# BssKI: 5 - 'CCNGG, - 3
+BssKI = 'CCNGG'
+# MspI : 5 - C'CG,G - 3
+MspI = 'CCGG'
+# EcoO109I : 5 - RG'GNC,CY
+EcoO109I = 'RGGNCCY'
+
+# Primers
+its1 = 'TCCGTAGGTGAACCTGCGG'
+its2rc = 'GCATCGATGAAGAACGCAGC'
+photoseqs_full = DNAStringSet(paste(its1, photoseqs_all, its2rc, sep=''))
+names(photoseqs_full) = names(photoseqs_all)
+
+# Find first RE site in each seq
+lengths_hpy = sapply(photoseqs_full, function(x){
+	matched = matchPattern(Hpy188iii, x, fixed = F)
+	frag_len = start(matched)[1] + 3 # Add first part of RE site
+	if(is.na(frag_len)) frag_len = nchar(x)
+	frag_len
+})
+
+lengths_bss = sapply(photoseqs_full, function(x){
+	matched = matchPattern(BssKI, x, fixed = F)
+	frag_len = start(matched)[1] + 4 # Add first part of RE site
+	if(is.na(frag_len)) frag_len = nchar(x)
+	frag_len
+})
+
+lengths_msp = sapply(photoseqs_full, function(x){
+	matched = matchPattern(MspI, x, fixed = F)
+	frag_len = start(matched)[1] + 2 # Add first part of RE site
+	if(is.na(frag_len)) frag_len = nchar(x)
+	frag_len
+})
+
+lengths_eco = sapply(photoseqs_full, function(x){
+	matched = matchPattern(EcoO109I, x, fixed = F)
+	frag_len = start(matched)[1] + 4 # Add first part of RE site
+	if(is.na(frag_len)) frag_len = nchar(x)
+	frag_len
+})
+
+re_compare = data.frame(Hpy188III = lengths_hpy, BssKI=lengths_bss, 
+	MspI = lengths_msp, EcoO109I=lengths_eco)
+
+re_compare[order(re_compare$Hpy188III, re_compare$MspI),]
+re_compare[order(re_compare$MspI,re_compare$Hpy188III),]
+re_compare[order(re_compare$EcoO109I, re_compare$MspI),]
+re_compare[order(re_compare$MspI,re_compare$EcoO109I),]
+
+apply(re_compare, 2, function(x) length(unique(x)))
+
+with(re_compare, plot(Hpy188III, MspI))
+with(re_compare, plot(MspI, EcoO109I))
+
+# Save
+write.csv(re_compare, './Analysis/Derived_Data/expected_photobiont_strain_length_full.csv', row.names=T)
+
+
+# Go one-by-one
+st = 'p10'
+matchPattern(Hpy188iii, photoseqs_full[[st]], fixed=F)
+matchPattern(BssKI, photoseqs_full[[st]], fixed=F)
+nchar(photoseqs_full[[st]])
+
+# Add to dataframe
+its12_frags = data.frame(strain=names(photoseqs_full),length=width(photoseqs_all)+39)
+its12_frags$Hpy188III = lengths_hpy
+its12_frags$BssKI = lengths_bss
+
+write.csv(its12_frags, './Analysis/Derived_Data/expected_photobiont_strain_lengths_manual.csv', row.names=F)
+
+
 
 # Read in table of fragment length from REPK (http://rocaplab.ocean.washington.edu/tools/repk)
 # These do not include length added by primer 

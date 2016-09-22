@@ -1,5 +1,8 @@
 ## This script is used to analyze photobiont T-RFLP profiles generated from the Photobiont-Mycobiont Diversity Project
 
+## TO DO: COMPARE RICHNESS AND COMMUNITY-ENV CORRELATIONS FROM DIFFERENT RESTRICTION ENZYMES AND THRESHOLDING METHODS
+
+
 options(stringsAsFactors=F)
 
 library(reshape)
@@ -33,19 +36,24 @@ good_dye = c('B','Y') #c('R','G') c('B','Y')
 names(good_dye) = c('Hpy188III', 'BssKI') #c('Hpy188III','BstUI') c('Hpy188III', 'BssKI')
 
 # Thresholding method
-Tmethod = 'VP'
+Tmethod = 'CP'#'VP'
 
 # Read in expected lengths
-photo_lengths = read.csv(paste(derived_dir, 'expected_photobiont_strain_lengths.csv', sep=''), row.names=1)
-photo_lengths = photo_lengths + 19 + 20# Add length of ITS1 + ITS2 primers
+#photo_lengths = read.csv(paste(derived_dir, 'expected_photobiont_strain_lengths.csv', sep=''), row.names=1)
+#photo_lengths = photo_lengths + 19 + 20# Add length of ITS1 + ITS2 primers
+photo_lengths = read.csv(paste(derived_dir, 'expected_photobiont_strain_lengths_manual.csv', sep=''), row.names=1)
+
 myco_lengths = read.csv(paste(derived_dir,'expected_mycobiont_strain_lengths.csv', sep=''), row.names=1)
-# DO NOT ADD PRIMER LENGTHS TO EXPECTED LENGTHS BECAUSE SEQS INCLUDE PRIMERS.
+# MYCO: DO NOT ADD PRIMER LENGTHS TO EXPECTED LENGTHS BECAUSE SEQS INCLUDE PRIMERS.
 colnames(myco_lengths) = names(good_dye)
 
 # Read in species that strains are associated with
 myco_names = read.csv(paste(derived_dir, 'mycobiont_strain_names.csv', sep=''))
 rownames(myco_names) = myco_names$strainID
 photo_names = read.csv(paste(derived_dir, 'photobiont_strain_names.csv', sep=''))
+
+photo_lengths$Strain_photo = rownames(photo_lengths)
+photo_lengths = merge(photo_lengths, photo_names, all.x=T, all.y=F)
 
 ## Read in profile matrices
 profile_mat1 = read.csv(paste(derived_dir, 'profiles_',run_name,'_',names(good_dye)[1],'_',Tmethod,'.csv', sep=''), row.names=1, check.names=F)
@@ -91,6 +99,7 @@ for(s in sp_samples){
 }
 dev.off()
 
+# List all peaks and find which peaks within top 50% of cumulative area
 sp_peaks1 = lapply(sp_samples, function(s){
 	these_peaks = sp_mat1_std[s,]
 	these_sizes = names(these_peaks)[these_peaks>0]
@@ -131,15 +140,19 @@ mtext(names(good_dye)[2], 2, 3)
 
 # Find rank of expected length in actual species profiles
 # Only works for mycobionts
+# 12/6/15: May need to go one-by-one for photobionts because multiple matches for lec_str and look for partial digest
 matched_peaks = array(NA, dim=c(2,length(sp_samples), 6),
 	dimnames = list(Dye=names(good_dye), SpID=sp_samples, Statistic=c('bp_exp','bp_found','size','bp_diff','rank','perc')))
 
 for(s in sp_samples){
-	if(s %in% rownames(lengths)){
+	if(s %in% rownames(lengths)| s %in% lengths$SpID){
 	peaks1 = sp_peaks1[[s]]$peaks
 	peaks2 = sp_peaks2[[s]]$peaks
-	exp_lens = 	lengths[s,]
-	
+	if(run_name=='myco') exp_lens = lengths[s,]
+	if(run_name=='photo'){
+		exp_lens = subset(lengths, SpID==s)[,names(good_dye)]
+	}	
+
 	diffs1 = abs(as.numeric(peaks1$bp) - exp_lens[,1])
 	rank1 = which(diffs1 == min(diffs1))
 	if(length(rank1)>1) rank1 = rank1[1]
@@ -161,6 +174,13 @@ for(s in sp_samples){
 matched_peaks_df=cast(melt(matched_peaks), Dye+SpID~Statistic)
 
 write.csv(matched_peaks_df, paste(fig_dir, run_name, '_match_peaks_',Tmethod,'.csv', sep=''), row.names=F)
+
+# Examine species one-by-one
+i = 40
+sp = sp_samples[i]
+subset(lengths, SpID==sp)
+sp_peaks1[[sp]]
+sp_peaks2[[sp]]
 
 # Match species peaks to sample peaks to see whether species are in samples or match other species
 match_array1 = array(NA, dim=c(length(sp_samples), nrow(profile_mat1), 3), 
@@ -187,7 +207,7 @@ sp_dist = dist(t(match_array1[sp_samples,sp_samples,'Pct_match']))
 sp_clust = hclust(sp_dist, method='average')
 plot(sp_clust)
 
-## Compare known community composistion to species profiles
+## Compare known community composition to species profiles
 # Note: 'lec-sp2' was IDed as 'lec-str'.
 # Mycobionts: have 'lec-sp2' only so change name of community matrix to 'lec-sp2'
 # Photobionts: have 'lec-str' only so leave name in community matrix alone
